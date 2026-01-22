@@ -41,20 +41,11 @@
 
 ## 🏗 架构图
 
-```mermaid
-graph TD
-    subgraph Dart Layer ["Dart 层"]
-    GL[游戏循环 / 模拟器] -->|生成 Int16 采样| W["write()"]
-    W -->|内存拷贝| RB_Dart[(共享环形缓冲区)]
-    end
+**Dart 层:**
+1.  `游戏循环 / 模拟器` → 生成 Int16 采样 → `write()` → 拷贝数据到 **共享环形缓冲区**。
 
-    subgraph Native Layer ["原生层 (C)"]
-    RB_Native[(共享环形缓冲区)] --- RB_Dart
-    Driver[音频驱动\n(AAudio/CoreAudio/etc)] -->|回调请求数据| CB[数据回调]
-    CB -->|从 FIFO 读取| RB_Native
-    CB -->|PCM 数据| Speaker
-    end
-```
+**原生层 (C):**
+1.  `音频驱动 (AAudio/CoreAudio/etc)` → 触发回调 → `数据回调` → 从 **共享环形缓冲区** 读取 → 输出 PCM 数据到 **扬声器**。
 
 *   **零拷贝 (接近)：** 数据只从 Dart 拷贝一次到共享环形缓冲区。原生端直接读取此缓冲区。
 *   **无 JNI/MethodChannel 开销：** 使用纯 `dart:ffi` 调用，性能最大化。

@@ -41,20 +41,11 @@ This allows the **Audio Hardware** to act as the **Master Clock** for your entir
 
 ## 🏗 Architecture
 
-```mermaid
-graph TD
-    subgraph Dart Layer
-    GL[Game Loop / Emulator] -->|Generate Int16 Samples| W["write()"]
-    W -->|Memcpy| RB_Dart[(Shared Ring Buffer)]
-    end
+**Dart Layer:**
+1.  `Game Loop / Emulator` → Generates Int16 samples → `write()` → copies data to **Shared Ring Buffer**.
 
-    subgraph Native Layer (C)
-    RB_Native[(Shared Ring Buffer)] --- RB_Dart
-    Driver[Audio Driver\n(AAudio/CoreAudio/etc)] -->|Callback Request| CB[Data Callback]
-    CB -->|Read from FIFO| RB_Native
-    CB -->|PCM Data| Speaker
-    end
-```
+**Native Layer (C):**
+1.  `Audio Driver (AAudio/CoreAudio/etc)` → Fires callback → `Data Callback` → Reads from **Shared Ring Buffer** → Outputs PCM data to **Speaker**.
 
 *   **Zero-Copy (Almost):** Data is copied once from Dart to the Shared Ring Buffer. The Native side reads directly from this buffer.
 *   **No JNI/MethodChannel Overhead:** Uses distinct `dart:ffi` calls for maximum performance.
