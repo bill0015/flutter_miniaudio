@@ -1,3 +1,8 @@
+## 1.0.5
+* Fixed static analysis issues (curly braces in flow control structures).
+* Removed unused prints and imports in example files.
+* Corrected repository and homepage URLs in pubspec.yaml to align with metadata.
+
 ## 1.0.4
 * Implemented Sound Generation: Noise and Waveforms.
 * Implemented additional Effect Nodes: Delay, Low-Pass, High-Pass, and Band-Pass filters.
