@@ -44,7 +44,7 @@ This allows the **Audio Hardware** to act as the **Master Clock** for your entir
 ```mermaid
 graph TD
     subgraph Dart Layer
-    GL[Game Loop / Emulator] -->|Generate Int16 Samples| W[write()]
+    GL[Game Loop / Emulator] -->|Generate Int16 Samples| W["write()"]
     W -->|Memcpy| RB_Dart[(Shared Ring Buffer)]
     end
 
@@ -83,7 +83,7 @@ Add `miniaudio_ffi` to your `pubspec.yaml`:
 dependencies:
 dependencies:
   flutter_miniaudio:
-    git: https://github.com/Hibaogame/flutter_miniaudio.git
+    git: https://github.com/bill0015/flutter_miniaudio.git
     # Or path if local:
     # path: packages/flutter_miniaudio
 ```

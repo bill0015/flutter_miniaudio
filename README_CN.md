@@ -44,7 +44,7 @@
 ```mermaid
 graph TD
     subgraph Dart Layer ["Dart 层"]
-    GL[游戏循环 / 模拟器] -->|生成 Int16 采样| W[write()]
+    GL[游戏循环 / 模拟器] -->|生成 Int16 采样| W["write()"]
     W -->|内存拷贝| RB_Dart[(共享环形缓冲区)]
     end
 
@@ -83,7 +83,7 @@ graph TD
 dependencies:
 dependencies:
   flutter_miniaudio:
-    git: https://github.com/Hibaogame/flutter_miniaudio.git
+    git: https://github.com/bill0015/flutter_miniaudio.git
     # 如果是本地路径：
     # path: packages/flutter_miniaudio
 ```
