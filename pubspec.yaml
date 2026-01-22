@@ -1,8 +1,8 @@
 name: flutter_miniaudio
 description: "Cross-platform high-performance low-latency audio plugin for Flutter games and emulators, powered by miniaudio."
-version: 1.0.1
-homepage: https://github.com/Hibaogame/flutter_miniaudio
-repository: https://github.com/Hibaogame/flutter_miniaudio
+version: 1.0.3
+homepage: https://github.com/bill0015/flutter_miniaudio
+repository: https://github.com/bill0015/flutter_miniaudio
 
 environment:
   sdk: ^3.0.0

@@ -1,4 +1,5 @@
 /// FFI bindings for miniaudio_bridge native library.
+library;
 
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
@@ -85,6 +86,21 @@ typedef MaBridgeSoundInitFromFileNative = Pointer<Void> Function(
 typedef MaBridgeSoundInitFromFileDart = Pointer<Void> Function(
     Pointer<Utf8> path, int flags);
 
+typedef MaBridgeSoundInitFromMemoryNative = Pointer<Void> Function(
+    Pointer<Void> data, Size size, Int32 flags);
+typedef MaBridgeSoundInitFromMemoryDart = Pointer<Void> Function(
+    Pointer<Void> data, int size, int flags);
+
+typedef MaBridgeSoundInitNoiseNative = Pointer<Void> Function(
+    Int32 type, Float amplitude, Int32 seed);
+typedef MaBridgeSoundInitNoiseDart = Pointer<Void> Function(
+    int type, double amplitude, int seed);
+
+typedef MaBridgeSoundInitWaveformNative = Pointer<Void> Function(
+    Int32 type, Float amplitude, Double frequency);
+typedef MaBridgeSoundInitWaveformDart = Pointer<Void> Function(
+    int type, double amplitude, double frequency);
+
 typedef MaBridgeSoundUninitNative = Void Function(Pointer<Void> soundHandle);
 typedef MaBridgeSoundUninitDart = void Function(Pointer<Void> soundHandle);
 
@@ -145,9 +161,17 @@ typedef MaBridgeSoundSetFadeInPcmFramesDart = void Function(
     Pointer<Void> soundHandle, double volumeBeg, double volumeEnd, int len);
 
 typedef MaBridgeSoundSetFadeStartTimeNative = Void Function(
-    Pointer<Void> soundHandle, Uint64 absoluteGlobalTime);
+    Pointer<Void> soundHandle,
+    Float volumeBeg,
+    Float volumeEnd,
+    Uint64 len,
+    Uint64 absoluteGlobalTime);
 typedef MaBridgeSoundSetFadeStartTimeDart = void Function(
-    Pointer<Void> soundHandle, int absoluteGlobalTime);
+    Pointer<Void> soundHandle,
+    double volumeBeg,
+    double volumeEnd,
+    int len,
+    int absoluteGlobalTime);
 
 typedef MaBridgeSoundSeekToPcmFrameNative = Void Function(
     Pointer<Void> soundHandle, Uint64 frameIndex);
@@ -242,6 +266,11 @@ typedef MaBridgeSoundInitFromFileWithGroupNative = Pointer<Void> Function(
 typedef MaBridgeSoundInitFromFileWithGroupDart = Pointer<Void> Function(
     Pointer<Utf8> path, Pointer<Void> groupHandle, int flags);
 
+typedef MaBridgeSoundRouteToNodeNative = Void Function(
+    Pointer<Void> soundHandle, Pointer<Void> nodeHandle);
+typedef MaBridgeSoundRouteToNodeDart = void Function(
+    Pointer<Void> soundHandle, Pointer<Void> nodeHandle);
+
 // --- Advanced Nodes (EQ / Filters) ---
 typedef MaBridgeNodeUninitNative = Void Function(Pointer<Void> nodeHandle);
 typedef MaBridgeNodeUninitDart = void Function(Pointer<Void> nodeHandle);
@@ -253,6 +282,60 @@ typedef MaBridgeNodeHpfSetCutoffNative = Void Function(
     Pointer<Void> nodeHandle, Float cutoff);
 typedef MaBridgeNodeHpfSetCutoffDart = void Function(
     Pointer<Void> nodeHandle, double cutoff);
+
+// LPF
+typedef MaBridgeNodeLpfInitNative = Pointer<Void> Function();
+typedef MaBridgeNodeLpfInitDart = Pointer<Void> Function();
+typedef MaBridgeNodeLpfSetCutoffNative = Void Function(
+    Pointer<Void> nodeHandle, Float cutoff);
+typedef MaBridgeNodeLpfSetCutoffDart = void Function(
+    Pointer<Void> nodeHandle, double cutoff);
+
+// BPF
+typedef MaBridgeNodeBpfInitNative = Pointer<Void> Function();
+typedef MaBridgeNodeBpfInitDart = Pointer<Void> Function();
+typedef MaBridgeNodeBpfSetCutoffNative = Void Function(
+    Pointer<Void> nodeHandle, Float cutoff);
+typedef MaBridgeNodeBpfSetCutoffDart = void Function(
+    Pointer<Void> nodeHandle, double cutoff);
+
+// Delay
+typedef MaBridgeNodeDelayInitNative = Pointer<Void> Function();
+typedef MaBridgeNodeDelayInitDart = Pointer<Void> Function();
+typedef MaBridgeNodeDelaySetDelayNative = Void Function(
+    Pointer<Void> nodeHandle, Int32 delayMS);
+typedef MaBridgeNodeDelaySetDelayDart = void Function(
+    Pointer<Void> nodeHandle, int delayMS);
+typedef MaBridgeNodeDelaySetWetNative = Void Function(
+    Pointer<Void> nodeHandle, Float wet);
+typedef MaBridgeNodeDelaySetWetDart = void Function(
+    Pointer<Void> nodeHandle, double wet);
+typedef MaBridgeNodeDelaySetDryNative = Void Function(
+    Pointer<Void> nodeHandle, Float dry);
+typedef MaBridgeNodeDelaySetDryDart = void Function(
+    Pointer<Void> nodeHandle, double dry);
+typedef MaBridgeNodeDelaySetDecayNative = Void Function(
+    Pointer<Void> nodeHandle, Float decay);
+typedef MaBridgeNodeDelaySetDecayDart = void Function(
+    Pointer<Void> nodeHandle, double decay);
+
+// Reverb
+typedef MaBridgeNodeReverbInitNative = Pointer<Void> Function();
+typedef MaBridgeNodeReverbInitDart = Pointer<Void> Function();
+typedef MaBridgeNodeReverbSetParamsNative = Void Function(
+    Pointer<Void> nodeHandle,
+    Float roomSize,
+    Float damping,
+    Float width,
+    Float wet,
+    Float dry);
+typedef MaBridgeNodeReverbSetParamsDart = void Function(
+    Pointer<Void> nodeHandle,
+    double roomSize,
+    double damping,
+    double width,
+    double wet,
+    double dry);
 
 // Peaking EQ
 typedef MaBridgeNodePeakingEqInitNative = Pointer<Void> Function();
@@ -354,6 +437,11 @@ class MiniaudioBindings {
   late final MaBridgeSoundIsPlayingDart soundIsPlaying;
   late final MaBridgeSoundAtEndDart soundAtEnd;
 
+  late final MaBridgeSoundInitFromMemoryDart soundInitFromMemory;
+  late final MaBridgeSoundInitNoiseDart soundInitNoise;
+  late final MaBridgeSoundInitWaveformDart soundInitWaveform;
+  late final MaBridgeSoundRouteToNodeDart soundRouteToNode;
+
   // Listener
   late final MaBridgeEngineListenerSetPositionDart engineListenerSetPosition;
   late final MaBridgeEngineListenerSetDirectionDart engineListenerSetDirection;
@@ -377,6 +465,21 @@ class MiniaudioBindings {
   late final MaBridgeNodeUninitDart nodeUninit;
   late final MaBridgeNodeHpfInitDart nodeHpfInit;
   late final MaBridgeNodeHpfSetCutoffDart nodeHpfSetCutoff;
+
+  late final MaBridgeNodeLpfInitDart nodeLpfInit;
+  late final MaBridgeNodeLpfSetCutoffDart nodeLpfSetCutoff;
+
+  late final MaBridgeNodeBpfInitDart nodeBpfInit;
+  late final MaBridgeNodeBpfSetCutoffDart nodeBpfSetCutoff;
+
+  late final MaBridgeNodeDelayInitDart nodeDelayInit;
+  late final MaBridgeNodeDelaySetDelayDart nodeDelaySetDelay;
+  late final MaBridgeNodeDelaySetWetDart nodeDelaySetWet;
+  late final MaBridgeNodeDelaySetDryDart nodeDelaySetDry;
+  late final MaBridgeNodeDelaySetDecayDart nodeDelaySetDecay;
+
+  late final MaBridgeNodeReverbInitDart nodeReverbInit;
+  late final MaBridgeNodeReverbSetParamsDart nodeReverbSetParams;
 
   late final MaBridgeNodePeakingEqInitDart nodePeakingEqInit;
   late final MaBridgeNodePeakingEqSetParamsDart nodePeakingEqSetParams;
@@ -404,8 +507,8 @@ class MiniaudioBindings {
         MaBridgeContextGetDeviceInfoDart>('ma_bridge_context_get_device_info');
 
     // Device
-    init = _lib
-        .lookupFunction<MaBridgeInitNative, MaBridgeInitDart>('ma_bridge_init');
+    init = _lib.lookupFunction<MaBridgeInitNative, MaBridgeInitDart>(
+        'ma_bridge_init_with_device_id');
     setFifo = _lib.lookupFunction<MaBridgeSetFifoNative, MaBridgeSetFifoDart>(
         'ma_bridge_set_fifo');
     start = _lib.lookupFunction<MaBridgeStartNative, MaBridgeStartDart>(
@@ -505,6 +608,15 @@ class MiniaudioBindings {
         _lib.lookupFunction<MaBridgeSoundAtEndNative, MaBridgeSoundAtEndDart>(
             'ma_bridge_sound_at_end');
 
+    soundInitFromMemory = _lib.lookupFunction<MaBridgeSoundInitFromMemoryNative,
+        MaBridgeSoundInitFromMemoryDart>('ma_bridge_sound_init_from_memory');
+    soundInitNoise = _lib.lookupFunction<MaBridgeSoundInitNoiseNative,
+        MaBridgeSoundInitNoiseDart>('ma_bridge_sound_init_noise');
+    soundInitWaveform = _lib.lookupFunction<MaBridgeSoundInitWaveformNative,
+        MaBridgeSoundInitWaveformDart>('ma_bridge_sound_init_waveform');
+    soundRouteToNode = _lib.lookupFunction<MaBridgeSoundRouteToNodeNative,
+        MaBridgeSoundRouteToNodeDart>('ma_bridge_sound_route_to_node');
+
     // Listener
     engineListenerSetPosition = _lib.lookupFunction<
             MaBridgeEngineListenerSetPositionNative,
@@ -569,6 +681,34 @@ class MiniaudioBindings {
             MaBridgeNodePeakingEqSetParamsNative,
             MaBridgeNodePeakingEqSetParamsDart>(
         'ma_bridge_node_peaking_eq_set_params');
+
+    nodeLpfInit =
+        _lib.lookupFunction<MaBridgeNodeLpfInitNative, MaBridgeNodeLpfInitDart>(
+            'ma_bridge_node_lpf_init');
+    nodeLpfSetCutoff = _lib.lookupFunction<MaBridgeNodeLpfSetCutoffNative,
+        MaBridgeNodeLpfSetCutoffDart>('ma_bridge_node_lpf_set_cutoff');
+
+    nodeBpfInit =
+        _lib.lookupFunction<MaBridgeNodeBpfInitNative, MaBridgeNodeBpfInitDart>(
+            'ma_bridge_node_bpf_init');
+    nodeBpfSetCutoff = _lib.lookupFunction<MaBridgeNodeBpfSetCutoffNative,
+        MaBridgeNodeBpfSetCutoffDart>('ma_bridge_node_bpf_set_cutoff');
+
+    nodeDelayInit = _lib.lookupFunction<MaBridgeNodeDelayInitNative,
+        MaBridgeNodeDelayInitDart>('ma_bridge_node_delay_init');
+    nodeDelaySetDelay = _lib.lookupFunction<MaBridgeNodeDelaySetDelayNative,
+        MaBridgeNodeDelaySetDelayDart>('ma_bridge_node_delay_set_delay');
+    nodeDelaySetWet = _lib.lookupFunction<MaBridgeNodeDelaySetWetNative,
+        MaBridgeNodeDelaySetWetDart>('ma_bridge_node_delay_set_wet');
+    nodeDelaySetDry = _lib.lookupFunction<MaBridgeNodeDelaySetDryNative,
+        MaBridgeNodeDelaySetDryDart>('ma_bridge_node_delay_set_dry');
+    nodeDelaySetDecay = _lib.lookupFunction<MaBridgeNodeDelaySetDecayNative,
+        MaBridgeNodeDelaySetDecayDart>('ma_bridge_node_delay_set_decay');
+
+    nodeReverbInit = _lib.lookupFunction<MaBridgeNodeReverbInitNative,
+        MaBridgeNodeReverbInitDart>('ma_bridge_node_reverb_init');
+    nodeReverbSetParams = _lib.lookupFunction<MaBridgeNodeReverbSetParamsNative,
+        MaBridgeNodeReverbSetParamsDart>('ma_bridge_node_reverb_set_params');
 
     nodeLowShelfInit = _lib.lookupFunction<MaBridgeNodeLowShelfInitNative,
         MaBridgeNodeLowShelfInitDart>('ma_bridge_node_low_shelf_init');

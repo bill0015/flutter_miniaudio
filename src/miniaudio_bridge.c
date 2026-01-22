@@ -164,8 +164,9 @@ MA_BRIDGE_EXPORT int ma_bridge_init_with_device_id(void* device_id, int sample_r
     config.periodSizeInFrames = buffer_frames;
     config.performanceProfile = ma_performance_profile_low_latency;
     
-    if (ma_device_init(&g_context, &config, &g_device) != MA_SUCCESS) {
-        printf("[miniaudio_bridge] Failed to init device\n");
+    ma_result result = ma_device_init(&g_context, &config, &g_device);
+    if (result != MA_SUCCESS) {
+        printf("[miniaudio_bridge] Failed to init device: %d\n", result);
         return -1;
     }
     
@@ -295,46 +296,68 @@ MA_BRIDGE_EXPORT void ma_bridge_engine_listener_set_enabled(int32_t listenerInde
 
 /* --- Sound API --- */
 
-MA_BRIDGE_EXPORT void* ma_bridge_sound_init_from_file(const char* path, int32_t flags) {
-    if (!g_engine_initialized) return NULL;
-    
-    ma_sound* sound = (ma_sound*)malloc(sizeof(ma_sound));
-    if (!sound) return NULL;
-    
-    // Default flags if 0. MA_SOUND_FLAG_DECODE is often good for small SFX.
-    // MA_SOUND_FLAG_STREAM is good for BGM.
-    // We let user pass flags (or use default). 
-    // Usually one wants explicit flags, but let's handle simple case.
-    ma_uint32 ma_flags = (ma_uint32)flags; 
-    
-    if (ma_sound_init_from_file(&g_engine, path, ma_flags, NULL, NULL, sound) != MA_SUCCESS) {
-        free(sound);
-        return NULL;
-    }
-    return sound;
-}
+// Internal Sound Wrapper
+// Some sounds (noise, waveform) are backed by data sources that must be managed.
+typedef struct {
+    ma_sound sound;
+    ma_noise* pNoise;
+    ma_waveform* pWaveform;
+    ma_decoder* pDecoder;
+} ma_bridge_sound;
 
-MA_BRIDGE_EXPORT void* ma_bridge_sound_init_from_file_with_group(const char* path, void* group_handle, int32_t flags) {
-    if (!g_engine_initialized) return NULL;
-    
-    ma_sound* sound = (ma_sound*)malloc(sizeof(ma_sound));
-    if (!sound) return NULL;
-    
-    ma_uint32 ma_flags = (ma_uint32)flags; 
-    
-    // Pass group_handle as the 4th argument (pGroup)
-    if (ma_sound_init_from_file(&g_engine, path, ma_flags, (ma_sound_group*)group_handle, NULL, sound) != MA_SUCCESS) {
-        free(sound);
-        return NULL;
+// Internal helper to allocate a bridge sound
+static ma_bridge_sound* ma_bridge_sound_alloc(void) {
+    ma_bridge_sound* pBridgeSound = (ma_bridge_sound*)malloc(sizeof(ma_bridge_sound));
+    if (pBridgeSound) {
+        pBridgeSound->pNoise = NULL;
+        pBridgeSound->pWaveform = NULL;
+        pBridgeSound->pDecoder = NULL;
     }
-    return sound;
+    return pBridgeSound;
 }
 
 MA_BRIDGE_EXPORT void ma_bridge_sound_uninit(void* sound_handle) {
     if (sound_handle) {
-        ma_sound_uninit((ma_sound*)sound_handle);
-        free(sound_handle);
+        ma_bridge_sound* pBridgeSound = (ma_bridge_sound*)sound_handle;
+        ma_sound_uninit(&pBridgeSound->sound);
+        if (pBridgeSound->pNoise) {
+            ma_noise_uninit(pBridgeSound->pNoise, NULL);
+            free(pBridgeSound->pNoise);
+        }
+        if (pBridgeSound->pWaveform) {
+            ma_waveform_uninit(pBridgeSound->pWaveform);
+            free(pBridgeSound->pWaveform);
+        }
+        if (pBridgeSound->pDecoder) {
+            ma_decoder_uninit(pBridgeSound->pDecoder);
+            free(pBridgeSound->pDecoder);
+        }
+        free(pBridgeSound);
     }
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_from_file(const char* path, int32_t flags) {
+    if (!g_engine_initialized) return NULL;
+    ma_bridge_sound* pBridgeSound = ma_bridge_sound_alloc();
+    if (!pBridgeSound) return NULL;
+    
+    if (ma_sound_init_from_file(&g_engine, path, (ma_uint32)flags, NULL, NULL, &pBridgeSound->sound) != MA_SUCCESS) {
+        free(pBridgeSound);
+        return NULL;
+    }
+    return pBridgeSound;
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_from_file_with_group(const char* path, void* group_handle, int32_t flags) {
+    if (!g_engine_initialized) return NULL;
+    ma_bridge_sound* pBridgeSound = ma_bridge_sound_alloc();
+    if (!pBridgeSound) return NULL;
+    
+    if (ma_sound_init_from_file(&g_engine, path, (ma_uint32)flags, (ma_sound_group*)group_handle, NULL, &pBridgeSound->sound) != MA_SUCCESS) {
+        free(pBridgeSound);
+        return NULL;
+    }
+    return pBridgeSound;
 }
 
 MA_BRIDGE_EXPORT void ma_bridge_sound_play(void* sound_handle) {
@@ -385,8 +408,8 @@ MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_in_pcm_frames(void* sound_handle,
     if (sound_handle) ma_sound_set_fade_in_pcm_frames((ma_sound*)sound_handle, volumeBeg, volumeEnd, len);
 }
 
-MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_start_time(void* sound_handle, uint64_t absoluteGlobalTime) {
-    if (sound_handle) ma_sound_set_fade_start_time((ma_sound*)sound_handle, absoluteGlobalTime);
+MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_start_time(void* sound_handle, float volumeBeg, float volumeEnd, uint64_t len, uint64_t absoluteGlobalTime) {
+    if (sound_handle) ma_sound_set_fade_start_in_pcm_frames((ma_sound*)sound_handle, volumeBeg, volumeEnd, len, absoluteGlobalTime);
 }
 
 MA_BRIDGE_EXPORT void ma_bridge_sound_seek_to_pcm_frame(void* sound_handle, uint64_t frameIndex) {
@@ -471,7 +494,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_hpf_init(void) {
     ma_hpf_node* node = (ma_hpf_node*)malloc(sizeof(ma_hpf_node));
     if (!node) return NULL;
 
-    ma_hpf_node_config config = ma_hpf_node_config_init(g_engine.pResourceManager->config.channels, g_engine.sampleRate, 0); // 0 cutoff initially
+    ma_hpf_node_config config = ma_hpf_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, 0, 2); // 0 cutoff, 2nd order default
     if (ma_hpf_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
         free(node);
         return NULL;
@@ -480,7 +503,11 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_hpf_init(void) {
 }
 
 MA_BRIDGE_EXPORT void ma_bridge_node_hpf_set_cutoff(void* node_handle, float cutoffFrequency) {
-    if (node_handle) ma_hpf_node_set_cutoff_frequency((ma_hpf_node*)node_handle, cutoffFrequency);
+    if (node_handle) {
+        ma_hpf_node* pNode = (ma_hpf_node*)node_handle;
+        ma_hpf_config config = ma_hpf_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, cutoffFrequency, 2);
+        ma_hpf_node_reinit(&config, pNode);
+    }
 }
 
 // --- Peaking EQ ---
@@ -491,7 +518,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_peaking_eq_init(void) {
     if (!node) return NULL;
 
     // channels, sampleRate, gainDB, q, freq
-    ma_peak_node_config config = ma_peak_node_config_init(g_engine.pResourceManager->config.channels, g_engine.sampleRate, 0, 1, 1000); 
+    ma_peak_node_config config = ma_peak_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, 0, 1, 1000); 
     if (ma_peak_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
         free(node);
         return NULL;
@@ -501,9 +528,9 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_peaking_eq_init(void) {
 
 MA_BRIDGE_EXPORT void ma_bridge_node_peaking_eq_set_params(void* node_handle, float gainDB, float q, float frequency) {
     if (node_handle) {
-        ma_peak_node_set_gain_db((ma_peak_node*)node_handle, gainDB);
-        ma_peak_node_set_q((ma_peak_node*)node_handle, q);
-        ma_peak_node_set_frequency((ma_peak_node*)node_handle, frequency);
+        ma_peak_node* pNode = (ma_peak_node*)node_handle;
+        ma_peak_config config = ma_peak2_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, gainDB, q, frequency);
+        ma_peak_node_reinit(&config, pNode);
     }
 }
 
@@ -514,7 +541,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_low_shelf_init(void) {
     ma_loshelf_node* node = (ma_loshelf_node*)malloc(sizeof(ma_loshelf_node));
     if (!node) return NULL;
 
-    ma_loshelf_node_config config = ma_loshelf_node_config_init(g_engine.pResourceManager->config.channels, g_engine.sampleRate, 0, 1, 200);
+    ma_loshelf_node_config config = ma_loshelf_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, 0, 1, 200);
     if (ma_loshelf_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
         free(node);
         return NULL;
@@ -524,9 +551,9 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_low_shelf_init(void) {
 
 MA_BRIDGE_EXPORT void ma_bridge_node_low_shelf_set_params(void* node_handle, float gainDB, float q, float frequency) {
     if (node_handle) {
-        ma_loshelf_node_set_gain_db((ma_loshelf_node*)node_handle, gainDB);
-        ma_loshelf_node_set_q((ma_loshelf_node*)node_handle, q);
-        ma_loshelf_node_set_frequency((ma_loshelf_node*)node_handle, frequency);
+        ma_loshelf_node* pNode = (ma_loshelf_node*)node_handle;
+        ma_loshelf2_config config = ma_loshelf2_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, gainDB, q, frequency);
+        ma_loshelf_node_reinit(&config, pNode);
     }
 }
 
@@ -537,7 +564,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_high_shelf_init(void) {
     ma_hishelf_node* node = (ma_hishelf_node*)malloc(sizeof(ma_hishelf_node));
     if (!node) return NULL;
 
-    ma_hishelf_node_config config = ma_hishelf_node_config_init(g_engine.pResourceManager->config.channels, g_engine.sampleRate, 0, 1, 4000);
+    ma_hishelf_node_config config = ma_hishelf_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, 0, 1, 4000);
     if (ma_hishelf_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
         free(node);
         return NULL;
@@ -547,9 +574,9 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_high_shelf_init(void) {
 
 MA_BRIDGE_EXPORT void ma_bridge_node_high_shelf_set_params(void* node_handle, float gainDB, float q, float frequency) {
     if (node_handle) {
-        ma_hishelf_node_set_gain_db((ma_hishelf_node*)node_handle, gainDB);
-        ma_hishelf_node_set_q((ma_hishelf_node*)node_handle, q);
-        ma_hishelf_node_set_frequency((ma_hishelf_node*)node_handle, frequency);
+        ma_hishelf_node* pNode = (ma_hishelf_node*)node_handle;
+        ma_hishelf2_config config = ma_hishelf2_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, gainDB, q, frequency);
+        ma_hishelf_node_reinit(&config, pNode);
     }
 }
 
@@ -561,7 +588,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_splitter_init(void) {
     if (!node) return NULL;
 
     // Default: 2 outputs
-    ma_splitter_node_config config = ma_splitter_node_config_init(g_engine.pResourceManager->config.channels);
+    ma_splitter_node_config config = ma_splitter_node_config_init(ma_engine_get_channels(&g_engine));
     if (ma_splitter_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
         free(node);
         return NULL;
@@ -571,7 +598,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_node_splitter_init(void) {
 
 MA_BRIDGE_EXPORT void ma_bridge_node_splitter_set_volume(void* node_handle, int outputIndex, float volume) {
     if (node_handle) {
-         ma_splitter_node_set_output_bus_volume((ma_splitter_node*)node_handle, (ma_uint32)outputIndex, volume);
+         ma_node_set_output_bus_volume((ma_node*)node_handle, (ma_uint32)outputIndex, volume);
     }
 }
 
@@ -594,15 +621,183 @@ MA_BRIDGE_EXPORT void* ma_bridge_engine_get_endpoint(void) {
     return (void*)ma_engine_get_endpoint(&g_engine);
 }
 
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_from_memory(const void* data, size_t size, int32_t flags) {
+    if (!g_engine_initialized) return NULL;
+    ma_bridge_sound* pBridgeSound = ma_bridge_sound_alloc();
+    if (!pBridgeSound) return NULL;
+    
+    pBridgeSound->pDecoder = (ma_decoder*)malloc(sizeof(ma_decoder));
+    if (!pBridgeSound->pDecoder) {
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    if (ma_decoder_init_memory(data, size, NULL, pBridgeSound->pDecoder) != MA_SUCCESS) {
+        free(pBridgeSound->pDecoder);
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    if (ma_sound_init_from_data_source(&g_engine, pBridgeSound->pDecoder, (ma_uint32)flags, NULL, &pBridgeSound->sound) != MA_SUCCESS) {
+        ma_decoder_uninit(pBridgeSound->pDecoder);
+        free(pBridgeSound->pDecoder);
+        free(pBridgeSound);
+        return NULL;
+    }
+    return pBridgeSound;
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_noise(int32_t type, float amplitude, int32_t seed) {
+    if (!g_engine_initialized) return NULL;
+    ma_bridge_sound* pBridgeSound = ma_bridge_sound_alloc();
+    if (!pBridgeSound) return NULL;
+    
+    pBridgeSound->pNoise = (ma_noise*)malloc(sizeof(ma_noise));
+    if (!pBridgeSound->pNoise) {
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    ma_noise_config noiseConfig = ma_noise_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), (ma_noise_type)type, seed, (double)amplitude);
+    if (ma_noise_init(&noiseConfig, NULL, pBridgeSound->pNoise) != MA_SUCCESS) {
+        free(pBridgeSound->pNoise);
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    if (ma_sound_init_from_data_source(&g_engine, (ma_data_source*)pBridgeSound->pNoise, 0, NULL, &pBridgeSound->sound) != MA_SUCCESS) {
+        ma_noise_uninit(pBridgeSound->pNoise, NULL);
+        free(pBridgeSound->pNoise);
+        free(pBridgeSound);
+        return NULL;
+    }
+    return pBridgeSound;
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_waveform(int32_t type, float amplitude, double frequency) {
+    if (!g_engine_initialized) return NULL;
+    ma_bridge_sound* pBridgeSound = ma_bridge_sound_alloc();
+    if (!pBridgeSound) return NULL;
+
+    pBridgeSound->pWaveform = (ma_waveform*)malloc(sizeof(ma_waveform));
+    if (!pBridgeSound->pWaveform) {
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    ma_waveform_config config = ma_waveform_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, (ma_waveform_type)type, (double)amplitude, frequency);
+    if (ma_waveform_init(&config, pBridgeSound->pWaveform) != MA_SUCCESS) {
+        free(pBridgeSound->pWaveform);
+        free(pBridgeSound);
+        return NULL;
+    }
+
+    if (ma_sound_init_from_data_source(&g_engine, (ma_data_source*)pBridgeSound->pWaveform, 0, NULL, &pBridgeSound->sound) != MA_SUCCESS) {
+        ma_waveform_uninit(pBridgeSound->pWaveform);
+        free(pBridgeSound->pWaveform);
+        free(pBridgeSound);
+        return NULL;
+    }
+    return pBridgeSound;
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_node_delay_init(void) {
+    if (!g_engine_initialized) return NULL;
+    ma_delay_node* node = (ma_delay_node*)malloc(sizeof(ma_delay_node));
+    if (!node) return NULL;
+    ma_delay_node_config config = ma_delay_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, (ma_uint32)(g_engine.sampleRate * 0.5f), 0.3f);
+    if (ma_delay_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
+        free(node);
+        return NULL;
+    }
+    return node;
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_delay_set_delay(void* node_handle, float delayInSeconds) {
+    // Note: runtime delay change not directly supported in this simple bridge yet.
+    // Potential fix: re-init the node or internal ma_delay.
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_delay_set_wet(void* node_handle, float wet) {
+    if (node_handle) ma_delay_node_set_wet((ma_delay_node*)node_handle, wet);
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_delay_set_dry(void* node_handle, float dry) {
+    if (node_handle) ma_delay_node_set_dry((ma_delay_node*)node_handle, dry);
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_delay_set_decay(void* node_handle, float decay) {
+    if (node_handle) ma_delay_node_set_decay((ma_delay_node*)node_handle, decay);
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_node_reverb_init(void) {
+    // Dummy implementation: ma_reverb_node is not available in current miniaudio.h
+    return NULL;
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_reverb_set_params(void* node_handle, float roomSize, float damping, float width, float wet, float dry) {
+    // Dummy implementation
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_node_bpf_init(void) {
+    if (!g_engine_initialized) return NULL;
+    ma_bpf_node* node = (ma_bpf_node*)malloc(sizeof(ma_bpf_node));
+    if (!node) return NULL;
+    ma_bpf_node_config config = ma_bpf_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, 1000, 2);
+    if (ma_bpf_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
+        free(node);
+        return NULL;
+    }
+    return node;
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_bpf_set_cutoff(void* node_handle, float cutoffFrequency) {
+    if (node_handle) {
+        ma_bpf_node* pNode = (ma_bpf_node*)node_handle;
+        ma_bpf_config config = ma_bpf_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, cutoffFrequency, 2);
+        ma_bpf_node_reinit(&config, pNode);
+    }
+}
+
+MA_BRIDGE_EXPORT void* ma_bridge_node_lpf_init(void) {
+    if (!g_engine_initialized) return NULL;
+    ma_lpf_node* node = (ma_lpf_node*)malloc(sizeof(ma_lpf_node));
+    if (!node) return NULL;
+    ma_lpf_node_config config = ma_lpf_node_config_init(ma_engine_get_channels(&g_engine), g_engine.sampleRate, g_engine.sampleRate / 2, 2);
+    if (ma_lpf_node_init(ma_engine_get_node_graph(&g_engine), &config, NULL, node) != MA_SUCCESS) {
+        free(node);
+        return NULL;
+    }
+    return node;
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_lpf_set_cutoff(void* node_handle, float cutoffFrequency) {
+    if (node_handle) {
+        ma_lpf_node* pNode = (ma_lpf_node*)node_handle;
+        ma_lpf_config config = ma_lpf_config_init(ma_format_f32, ma_engine_get_channels(&g_engine), g_engine.sampleRate, cutoffFrequency, 2);
+        ma_lpf_node_reinit(&config, pNode);
+    }
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_node_uninit(void* node_handle) {
+    if (node_handle) {
+        ma_node_uninit((ma_node*)node_handle, NULL);
+        free(node_handle);
+    }
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_sound_route_to_node(void* sound_handle, void* node_handle) {
+    if (sound_handle) {
+        ma_node* dest = (node_handle != NULL) ? (ma_node*)node_handle : ma_engine_get_endpoint(&g_engine);
+        ma_node_attach_output_bus((ma_node*)sound_handle, 0, dest, 0);
+    }
+}
+
 MA_BRIDGE_EXPORT void ma_bridge_deinit(void) {
     ma_bridge_stop();
     if (g_device_initialized) {
         ma_device_uninit(&g_device);
         g_device_initialized = 0;
     }
-    // Note: We don't necessarily uninit context or engine here as they might be shared or needed later?
-    // But for "deinit all", maybe we should? 
-    // Let's keep context/engine alive unless explicitly uninited, 
-    // OR create a `ma_bridge_shutdown` for full cleanup.
-    // For now, `ma_bridge_deinit` was originally for the Device.
+    ma_bridge_engine_uninit();
 }

@@ -689,21 +689,27 @@ class MiniaudioFfiBindings {
 
   void ma_bridge_sound_set_fade_start_time(
     ffi.Pointer<ffi.Void> sound_handle,
+    double volumeBeg,
+    double volumeEnd,
+    int len,
     int absoluteGlobalTime,
   ) {
     return _ma_bridge_sound_set_fade_start_time(
       sound_handle,
+      volumeBeg,
+      volumeEnd,
+      len,
       absoluteGlobalTime,
     );
   }
 
   late final _ma_bridge_sound_set_fade_start_timePtr = _lookup<
       ffi.NativeFunction<
-          ffi.Void Function(ffi.Pointer<ffi.Void>,
-              ffi.Uint64)>>('ma_bridge_sound_set_fade_start_time');
+          ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float,
+              ffi.Uint64, ffi.Uint64)>>('ma_bridge_sound_set_fade_start_time');
   late final _ma_bridge_sound_set_fade_start_time =
-      _ma_bridge_sound_set_fade_start_timePtr
-          .asFunction<void Function(ffi.Pointer<ffi.Void>, int)>();
+      _ma_bridge_sound_set_fade_start_timePtr.asFunction<
+          void Function(ffi.Pointer<ffi.Void>, double, double, int, int)>();
 
   void ma_bridge_sound_seek_to_pcm_frame(
     ffi.Pointer<ffi.Void> sound_handle,
@@ -960,7 +966,7 @@ class MiniaudioFfiBindings {
   late final _ma_bridge_sound_init_waveformPtr = _lookup<
       ffi.NativeFunction<
           ffi.Pointer<ffi.Void> Function(ffi.Int32, ffi.Float,
-              ffi.Float)>>('ma_bridge_sound_init_waveform');
+              ffi.Double)>>('ma_bridge_sound_init_waveform');
   late final _ma_bridge_sound_init_waveform = _ma_bridge_sound_init_waveformPtr
       .asFunction<ffi.Pointer<ffi.Void> Function(int, double, double)>();
 

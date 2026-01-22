@@ -158,7 +158,7 @@ MA_BRIDGE_EXPORT void ma_bridge_engine_listener_set_cone(int32_t listenerIndex, 
 MA_BRIDGE_EXPORT void ma_bridge_engine_listener_set_enabled(int32_t listenerIndex, int32_t enabled);
 
 MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_in_pcm_frames(void* sound_handle, float volumeBeg, float volumeEnd, uint64_t len);
-MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_start_time(void* sound_handle, uint64_t absoluteGlobalTime);
+MA_BRIDGE_EXPORT void ma_bridge_sound_set_fade_start_time(void* sound_handle, float volumeBeg, float volumeEnd, uint64_t len, uint64_t absoluteGlobalTime);
 
 MA_BRIDGE_EXPORT void ma_bridge_sound_seek_to_pcm_frame(void* sound_handle, uint64_t frameIndex);
 MA_BRIDGE_EXPORT uint64_t ma_bridge_sound_get_length_in_pcm_frames(void* sound_handle);
@@ -202,7 +202,7 @@ MA_BRIDGE_EXPORT void* ma_bridge_sound_init_noise(int32_t type, float amplitude,
  * @param frequency Hz.
  * @return Sound Handle.
  */
-MA_BRIDGE_EXPORT void* ma_bridge_sound_init_waveform(int32_t type, float amplitude, float frequency);
+MA_BRIDGE_EXPORT void* ma_bridge_sound_init_waveform(int32_t type, float amplitude, double frequency);
 
 
 // --- Effects & Graph (Node System) ---
@@ -262,13 +262,6 @@ MA_BRIDGE_EXPORT void ma_bridge_node_uninit(void* node_handle);
  * @param node_handle The effect node to connect to. If NULL, connects to Engine Output.
  */
 MA_BRIDGE_EXPORT void ma_bridge_sound_route_to_node(void* sound_handle, void* node_handle);
-
-/**
- * Chain nodes: Node A output -> Node B input.
- * @param source_node The upstream node.
- * @param dest_node The downstream node. If NULL, connects to Engine Output.
- */
-MA_BRIDGE_EXPORT void ma_bridge_node_attach_output_bus(void* source_node, int32_t source_bus, void* dest_node, int32_t dest_bus);
 
 MA_BRIDGE_EXPORT void ma_bridge_deinit(void);
 

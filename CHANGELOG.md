@@ -1,3 +1,10 @@
+## 1.0.3
+* Fixed lint warnings (dangling library doc comments).
+* Corrected repository URL in pubspec.yaml.
+
+## 1.0.2
+* Documentation: Improved README with better examples and explanations.
+
 ## 1.0.1
 * Documentation: Added complete list of supported nodes (Reverb, Delay, LPF, HPF) to README.
 * Docs: Improved Chinese documentation.

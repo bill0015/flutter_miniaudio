@@ -6,9 +6,12 @@
 /// - MiniaudioSound: Individual sound objects for the engine
 /// - MiniaudioSoundGroup: Grouping for volume control/effects
 /// - MiniaudioContext: Device enumeration
+library;
 
 import 'dart:ffi';
+import 'dart:typed_data';
 import 'dart:io';
+
 import 'package:ffi/ffi.dart';
 import 'miniaudio_bindings.dart';
 
@@ -22,7 +25,7 @@ void _ensureLibraryLoaded() {
   if (Platform.isAndroid || Platform.isLinux) {
     lib = DynamicLibrary.open('libminiaudio_ffi.so');
   } else if (Platform.isIOS || Platform.isMacOS) {
-    lib = DynamicLibrary.open('miniaudio_ffi.framework/miniaudio_ffi');
+    lib = DynamicLibrary.open('flutter_miniaudio.framework/flutter_miniaudio');
   } else if (Platform.isWindows) {
     lib = DynamicLibrary.open('miniaudio_ffi.dll');
   } else {
@@ -316,6 +319,36 @@ class MiniaudioEngine {
     return SplitterNode._(handle);
   }
 
+  DelayNode createDelay() {
+    final handle = _bindings!.nodeDelayInit();
+    if (handle == nullptr) throw Exception("Failed to create Delay");
+    return DelayNode._(handle);
+  }
+
+  ReverbNode createReverb() {
+    final handle = _bindings!.nodeReverbInit();
+    if (handle == nullptr) throw Exception("Failed to create Reverb");
+    return ReverbNode._(handle);
+  }
+
+  LowPassFilterNode createLowPass() {
+    final handle = _bindings!.nodeLpfInit();
+    if (handle == nullptr) throw Exception("Failed to create Low Pass Filter");
+    return LowPassFilterNode._(handle);
+  }
+
+  HighPassFilterNode createHighPass() {
+    final handle = _bindings!.nodeHpfInit();
+    if (handle == nullptr) throw Exception("Failed to create High Pass Filter");
+    return HighPassFilterNode._(handle);
+  }
+
+  BandPassFilterNode createBandPass() {
+    final handle = _bindings!.nodeBpfInit();
+    if (handle == nullptr) throw Exception("Failed to create Band Pass Filter");
+    return BandPassFilterNode._(handle);
+  }
+
   /// Create and load a sound object.
   /// Don't forget to call dispose() on the sound when done!
   Future<MiniaudioSound> loadSound(String path,
@@ -332,6 +365,35 @@ class MiniaudioEngine {
     if (handle == nullptr) {
       throw Exception("Failed to load sound: $path");
     }
+    return MiniaudioSound._(handle);
+  }
+
+  Future<MiniaudioSound> loadSoundFromMemory(Uint8List data,
+      {bool decode = false}) async {
+    final dataPtr = calloc<Uint8>(data.length);
+    dataPtr.asTypedList(data.length).setAll(0, data);
+    int flags = decode ? 0x1 : 0x0;
+
+    final handle =
+        _bindings!.soundInitFromMemory(dataPtr.cast(), data.length, flags);
+    calloc.free(dataPtr);
+
+    if (handle == nullptr) {
+      throw Exception("Failed to load sound from memory");
+    }
+    return MiniaudioSound._(handle);
+  }
+
+  MiniaudioSound loadNoise(int type, {double amplitude = 0.5, int seed = 0}) {
+    final handle = _bindings!.soundInitNoise(type, amplitude, seed);
+    if (handle == nullptr) throw Exception("Failed to load noise");
+    return MiniaudioSound._(handle);
+  }
+
+  MiniaudioSound loadWaveform(int type,
+      {double amplitude = 0.5, double frequency = 440.0}) {
+    final handle = _bindings!.soundInitWaveform(type, amplitude, frequency);
+    if (handle == nullptr) throw Exception("Failed to load waveform");
     return MiniaudioSound._(handle);
   }
 
@@ -417,8 +479,10 @@ class MiniaudioSound extends GraphNode {
     _bindings!.soundSetFadeInPcmFrames(_handle, volBeg, volEnd, lenFrames);
   }
 
-  void setFadeStartTime(int absoluteGlobalTime) {
-    _bindings!.soundSetFadeStartTime(_handle, absoluteGlobalTime);
+  void setFadeStartTime(
+      double volBeg, double volEnd, int lenFrames, int absoluteGlobalTime) {
+    _bindings!.soundSetFadeStartTime(
+        _handle, volBeg, volEnd, lenFrames, absoluteGlobalTime);
   }
 
   // --- Advanced Spatialization (3D) ---
@@ -441,6 +505,10 @@ class MiniaudioSound extends GraphNode {
 
   void setDopplerFactor(double factor) {
     _bindings!.soundSetDopplerFactor(_handle, factor);
+  }
+
+  void routeToNode(GraphNode? node) {
+    _bindings!.soundRouteToNode(_handle, node?.handle ?? nullptr);
   }
 
   void dispose() {
@@ -497,6 +565,47 @@ class SplitterNode extends AudioNode {
   void setOutputVolume(int outputIndex, double volume) {
     _bindings!.nodeSplitterSetVolume(_handle, outputIndex, volume);
   }
+}
+
+class DelayNode extends AudioNode {
+  DelayNode._(Pointer<Void> handle) : super._(handle);
+
+  void setDelay(int delayMS) => _bindings!.nodeDelaySetDelay(_handle, delayMS);
+  void setWet(double wet) => _bindings!.nodeDelaySetWet(_handle, wet);
+  void setDry(double dry) => _bindings!.nodeDelaySetDry(_handle, dry);
+  void setDecay(double decay) => _bindings!.nodeDelaySetDecay(_handle, decay);
+}
+
+class ReverbNode extends AudioNode {
+  ReverbNode._(Pointer<Void> handle) : super._(handle);
+
+  /// Note: Reverb is currently a placeholder if not supported by the bridge.
+  void setParams(
+      {double roomSize = 0.5,
+      double damping = 0.5,
+      double width = 1.0,
+      double wet = 0.5,
+      double dry = 0.5}) {
+    _bindings!.nodeReverbSetParams(_handle, roomSize, damping, width, wet, dry);
+  }
+}
+
+class LowPassFilterNode extends AudioNode {
+  LowPassFilterNode._(Pointer<Void> handle) : super._(handle);
+  void setCutoff(double frequency) =>
+      _bindings!.nodeLpfSetCutoff(_handle, frequency);
+}
+
+class HighPassFilterNode extends AudioNode {
+  HighPassFilterNode._(Pointer<Void> handle) : super._(handle);
+  void setCutoff(double frequency) =>
+      _bindings!.nodeHpfSetCutoff(_handle, frequency);
+}
+
+class BandPassFilterNode extends AudioNode {
+  BandPassFilterNode._(Pointer<Void> handle) : super._(handle);
+  void setCutoff(double frequency) =>
+      _bindings!.nodeBpfSetCutoff(_handle, frequency);
 }
 
 class _EndpointNode extends GraphNode {
