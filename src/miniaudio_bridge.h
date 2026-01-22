@@ -74,6 +74,7 @@ MA_BRIDGE_EXPORT int32_t ma_bridge_get_fifo_available(void);
 
 // Advanced Controls
 MA_BRIDGE_EXPORT void ma_bridge_set_volume(float volume); // 0.0 to 1.0 (or higher for gain)
+MA_BRIDGE_EXPORT void ma_bridge_set_log_enabled(int enabled);
 MA_BRIDGE_EXPORT int32_t ma_bridge_get_device_sample_rate(void); // Get actual hardware sample rate
 MA_BRIDGE_EXPORT int32_t ma_bridge_get_device_channels(void); // Get actual hardware channels
 

@@ -16,11 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifdef _WIN32
-  #define MA_BRIDGE_EXPORT __declspec(dllexport)
-#else
-  #define MA_BRIDGE_EXPORT __attribute__((visibility("default"))) __attribute__((used))
-#endif
+// MA_BRIDGE_EXPORT is defined in header
+
 
 /* --- Globals --- */
 
@@ -39,6 +36,11 @@ static int g_engine_initialized = 0;
 
 /* Logging Control */
 static int g_log_enabled = 0; // Default to false (Silent)
+
+MA_BRIDGE_EXPORT void ma_bridge_set_log_enabled(int enabled) {
+    g_log_enabled = enabled;
+    // printf("[miniaudio_bridge] Logging %s\n", enabled ? "ENABLED" : "DISABLED");
+}
 
 /* Device FIFO state (legacy/stream mode) */
 static int16_t* g_fifo = NULL;
@@ -254,19 +256,84 @@ MA_BRIDGE_EXPORT int32_t ma_bridge_get_device_channels(void) {
     return g_device_initialized ? g_device.playback.channels : 0;
 }
 
-MA_BRIDGE_EXPORT int32_t ma_bridge_write_pcm_frames(int16_t* data, int32_t frameCount) {
+/* Resampler Control */
+static ma_resampler g_resampler;
+static int g_resampler_initialized = 0;
+static ma_uint32 g_resampler_rate_in = 0;
+static ma_uint32 g_resampler_rate_out = 0;
+// We need an intermediate buffer for resampled output before writing to ring buffer
+static int16_t* g_resample_buffer_out = NULL;
+static int g_resample_buffer_capacity = 0; // in samples (frames * channels)
+
+MA_BRIDGE_EXPORT int ma_bridge_init_resampler(int sourceSampleRate, int targetSampleRate) {
+    if (g_resampler_initialized) {
+        ma_resampler_uninit(&g_resampler, NULL);
+        g_resampler_initialized = 0;
+    }
+
+    if (sourceSampleRate == targetSampleRate) {
+        printf("[miniaudio_bridge] Resampler skipped (Rates match: %d)\n", sourceSampleRate);
+        return 0;
+    }
+
+    ma_resampler_config config = ma_resampler_config_init(
+        ma_format_s16, 
+        g_channels, 
+        sourceSampleRate, 
+        targetSampleRate, 
+        ma_resample_algorithm_linear
+    );
+    // Linear is fastest. Sinc not available in this build.
+
+    if (ma_resampler_init(&config, NULL, &g_resampler) != MA_SUCCESS) {
+        printf("[miniaudio_bridge] Failed to init resampler!\n");
+        return -1;
+    }
+
+    // Allocate a large enough output buffer (e.g. 2x input size just to be safe for upsampling)
+    // We assume typical write sizes ~1024 frames. 
+    // Let's allocate enough for ~8192 frames output to be safe.
+    int safe_cap_frames = 8192;
+    int safe_cap_samples = safe_cap_frames * g_channels;
+    
+    if (g_resample_buffer_out) free(g_resample_buffer_out);
+    g_resample_buffer_out = (int16_t*)malloc(safe_cap_samples * sizeof(int16_t));
+    g_resample_buffer_capacity = safe_cap_samples;
+
+    g_resampler_initialized = 1;
+    g_resampler_rate_in = sourceSampleRate;
+    g_resampler_rate_out = targetSampleRate;
+    printf("[miniaudio_bridge] Resampler Initialized. %d -> %d\n", sourceSampleRate, targetSampleRate);
+    return 0;
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_uninit_resampler(void) {
+    if (g_resampler_initialized) {
+        ma_resampler_uninit(&g_resampler, NULL);
+        g_resampler_initialized = 0;
+    }
+    if (g_resample_buffer_out) {
+        free(g_resample_buffer_out);
+        g_resample_buffer_out = NULL;
+    }
+}
+
+MA_BRIDGE_EXPORT void ma_bridge_set_resampling_ratio(float ratio) {
+    if (g_resampler_initialized) {
+        ma_resampler_set_rate_ratio(&g_resampler, ratio);
+        // printf("[miniaudio_bridge] Resampler ratio set to: %f\n", ratio);
+    }
+}
+
+
+/* --- Engine API (High Level) --- */
+
+MA_BRIDGE_EXPORT int32_t ma_bridge_write_device_fifo(int16_t* data, int32_t frameCount) {
     if (!g_fifo || !g_write_pos || !g_read_pos) return 0;
 
     int read = *g_read_pos;
     int write = *g_write_pos;
     int capacity = g_fifo_capacity;
-
-    int available;
-    if (write >= read) {
-        available = capacity - (write - read) - 1;
-    } else {
-        available = read - write - 1;
-    }
 
     // Logic for "Space Available to Write":
     int freeSamples;
@@ -311,6 +378,112 @@ MA_BRIDGE_EXPORT int32_t ma_bridge_write_pcm_frames(int16_t* data, int32_t frame
     *g_write_pos = (write + samplesToWrite) % capacity;
     
     return framesToWrite;
+}
+
+MA_BRIDGE_EXPORT int32_t ma_bridge_write_pcm_frames(int16_t* data, int32_t frameCount) {
+    if (!g_resampler_initialized) {
+        return ma_bridge_write_device_fifo(data, frameCount);
+    }
+    if (!g_resample_buffer_out || !g_fifo || !g_read_pos || !g_write_pos) return 0;
+
+    // 1. Calculate Space Available in Output FIFO
+    int read = *g_read_pos;
+    int write = *g_write_pos;
+    int capacity = g_fifo_capacity; // capacity in samples
+    int free_samples;
+    
+    if (write >= read) {
+        free_samples = capacity - (write - read) - 1;
+    } else {
+        free_samples = read - write - 1;
+    }
+    int free_frames_out = free_samples / g_channels;
+
+    if (free_frames_out <= 0) return 0; // FIFO Full
+
+    // 2. Calculate Estimate Max Input we can consume
+    // We want to know: How many INPUT frames will generate <= free_frames_out OUTPUT frames?
+    ma_uint64 max_input_frames = 0;
+    
+    // API: ma_resampler_get_required_input_frame_count(resampler, outputFrameCount, inputFrameCount)
+    // Note: If function not available, we use approximation: input = output * (inRate / outRate)
+    ma_result res = ma_resampler_get_required_input_frame_count(&g_resampler, free_frames_out, &max_input_frames);
+    
+    if (res != MA_SUCCESS) {
+        // Fallback approximation if API fails (unlikely)
+        // Ratio is roughly in/out? No, ratio is dynamic.
+        // float ratio = g_resampler.rate; // internal structure might be opaque
+        // Just fail safe
+        return 0; 
+    }
+
+    if (max_input_frames == 0) return 0; // Not enough space for even 1 frame?
+
+    // 3. Cap Input
+    ma_uint64 framesInToProcess = (ma_uint64)frameCount;
+    if (framesInToProcess > max_input_frames) {
+        framesInToProcess = max_input_frames;
+    }
+
+    if (framesInToProcess == 0) return 0;
+
+    // 4. Dynamic Rate Control (Audio Sync)
+    // Target: 50% Buffer Fill.
+    // If < 50%, Decrease Ratio (Play Slower, consume less input).
+    // If > 50%, Increase Ratio (Play Faster, consume more input).
+    
+    float currentFill = (float)(capacity - free_samples) / (float)capacity;
+    float targetFill = 0.5f;
+    float error = currentFill - targetFill; // Range -0.5 to +0.5
+    
+    // P-Factor: Specific to Libretro/Emulator limits.
+    // Too high = pitch wow/flutter. Too low = drift/underrun.
+    // 0.05 implies 5% max adjustment (approx semitone).
+    // Start conservative: 0.01 (1%).
+    float gain = 0.01f; 
+    
+    float adjustment = error * gain;
+    
+    // Base Ratio: source / target
+    // We don't store base ratio in global currently, but we can recalculate or store it.
+    // Ideally we store it. For now, assume current ratio is close to base.
+    // Better: Retrieve current ratio? ma_resampler doesn't expose getter easily in struct.
+    // Hack: We stored base config. Or we just calculate it here?
+    // Hack: We stored base config. Or we just calculate it here?
+    // Let's recalculate it:
+    float baseRatio = (float)g_resampler_rate_in / (float)g_resampler_rate_out;
+    
+    float newRatio = baseRatio * (1.0f + adjustment);
+    
+    // Clamp to reasonable limits (e.g. +/- 5%)
+    if (newRatio < baseRatio * 0.95f) newRatio = baseRatio * 0.95f;
+    if (newRatio > baseRatio * 1.05f) newRatio = baseRatio * 1.05f;
+    
+    ma_resampler_set_rate_ratio(&g_resampler, newRatio);
+
+    // 5. Resample
+    ma_uint64 framesOutGenerated = (ma_uint64)(g_resample_buffer_capacity / g_channels);
+    ma_uint64 framesInConsumed = framesInToProcess;
+    
+    ma_result result = ma_resampler_process_pcm_frames(
+        &g_resampler, 
+        data, 
+        &framesInConsumed, 
+        g_resample_buffer_out, 
+        &framesOutGenerated
+    );
+
+    if (result != MA_SUCCESS) {
+        MA_LOG("[miniaudio_bridge] Resampling failed: %d\n", result);
+        return 0;
+    }
+
+    // 6. Write to FIFO
+    int written = ma_bridge_write_device_fifo(g_resample_buffer_out, (int)framesOutGenerated);
+    (void)written;
+    
+    // Return frames consumed from INPUT
+    return (int32_t)framesInConsumed;
 }
 
 /* --- Engine API (High Level) --- */
@@ -887,6 +1060,8 @@ MA_BRIDGE_EXPORT void ma_bridge_deinit(void) {
     g_fifo = NULL;
     g_read_pos = NULL;
     g_write_pos = NULL;
+
+    ma_bridge_uninit_resampler(); // Ensure resampler is cleaned up
 
     if (g_device_initialized) {
         ma_device_uninit(&g_device);

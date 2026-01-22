@@ -1,3 +1,9 @@
+## 1.0.7
+* Feature: Implemented Native Resampler (Linear) to handle input rate mismatches (e.g., 48002Hz -> 48000Hz).
+* Feature: Implemented Dynamic Rate Control (P-Controller) to prevent audio buffer underruns/overruns.
+* Feature: Added `setPlaybackSpeed` API for high-quality speed changes.
+* Fix: Added back-pressure logic to `write_pcm_frames` for better audio sync.
+
 ## 1.0.6
 * Fix: Removed `printf` debugging from real-time audio callback to prevent deadlocks.
 * Fix: Implemented atomic ring buffer with memory barriers in C to prevent race conditions ("da da da" artifacts).

@@ -108,6 +108,7 @@ class MiniaudioPlayer {
   final int bufferFrames;
   final int fifoCapacityFrames;
   final Uint8List? deviceId;
+  final int? inputSampleRate; // Source rate (e.g. 48002Hz)
 
   int get _fifoCapacitySamples => fifoCapacityFrames * channels;
 
@@ -121,6 +122,7 @@ class MiniaudioPlayer {
     this.bufferFrames = 512,
     this.fifoCapacityFrames = 8192,
     this.deviceId, // Optional specific device
+    this.inputSampleRate,
   }) {
     _ensureLibraryLoaded();
     try {
@@ -160,6 +162,15 @@ class MiniaudioPlayer {
       }
       print(
           "[MiniaudioPlayer] Device Initialized. Rate: $sampleRate, Channels: $channels");
+
+      // Initialize Resampler if needed
+      if (inputSampleRate != null && inputSampleRate != sampleRate) {
+        final res = _bindings!.initResampler(inputSampleRate!, sampleRate);
+        if (res != 0) {
+          print("[MiniaudioPlayer] WARNING: Failed to initialize resampler!");
+        }
+      }
+
       _bindings!.setFifo(_fifoPtr, _fifoCapacitySamples, _readPos, _writePos);
       _initialized = true;
     } finally {
@@ -197,6 +208,38 @@ class MiniaudioPlayer {
       return;
     }
     _bindings!.setLogEnabled(enabled ? 1 : 0);
+  }
+
+  void setPlaybackSpeed(double speed) {
+    if (!_initialized) return;
+
+    // Calculate ratio: device / (input * speed)
+    // e.g. Device 48000, Input 48000, Speed 1.0 => Ratio 1.0
+    // e.g. Device 48000, Input 48000, Speed 2.0 => Ratio 0.5 (need to squeeze 2x input into 1x output time -> consume input 2x faster -> actually ratio is input_consumed / output_generated)
+
+    // Wait, ratio in miniaudio ma_resampler_set_rate_ratio:
+    // "ratio of input sample rate to output sample rate" -> input / output ?
+    // ma_resampler_init docs: "ratio = sampleRateIn / sampleRateOut"
+    // NO. miniaudio docs: "ratio = in / out".
+    // Let's verify. ma_resampler_config_init takes in, out.
+    // ratio = (double)config.sampleRateIn / (double)config.sampleRateOut;
+
+    // If we want 2x speed (pitch up), we want to consume 2x frames for every 1x output frame.
+    // So effective input rate is doubled?
+    // No, effective ratio is doubled.
+    // Ratio = InputFrames / OutputFrames
+
+    double baseRatio;
+    if (inputSampleRate != null) {
+      baseRatio = inputSampleRate! / sampleRate;
+    } else {
+      baseRatio = 1.0;
+    }
+
+    // speed 1.0 -> ratio = baseRatio
+    // speed 2.0 -> ratio = baseRatio * speed (Consume 2x input for same output)
+
+    _bindings!.setResamplingRatio(baseRatio * speed);
   }
 
   void stop() {

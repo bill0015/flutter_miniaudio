@@ -66,6 +66,15 @@ typedef MaBridgeGetDeviceSampleRateDart = int Function();
 typedef MaBridgeGetDeviceChannelsNative = Int32 Function();
 typedef MaBridgeGetDeviceChannelsDart = int Function();
 
+// --- Resampler Types ---
+typedef MaBridgeInitResamplerNative = Int32 Function(
+    Int32 sourceSampleRate, Int32 targetSampleRate);
+typedef MaBridgeInitResamplerDart = int Function(
+    int sourceSampleRate, int targetSampleRate);
+
+typedef MaBridgeSetResamplingRatioNative = Void Function(Float ratio);
+typedef MaBridgeSetResamplingRatioDart = void Function(double ratio);
+
 // --- Engine Types ---
 typedef MaBridgeEngineInitNative = Int32 Function();
 typedef MaBridgeEngineInitDart = int Function();
@@ -416,6 +425,10 @@ class MiniaudioBindings {
   late final MaBridgeDeinitDart deinit;
   late final MaBridgeWritePcmFramesDart writePcmFrames;
 
+  // Resampler
+  late final MaBridgeInitResamplerDart initResampler;
+  late final MaBridgeSetResamplingRatioDart setResamplingRatio;
+
   // Engine
   late final MaBridgeEngineInitDart engineInit;
   late final MaBridgeEngineUninitDart engineUninit;
@@ -542,6 +555,12 @@ class MiniaudioBindings {
         'ma_bridge_deinit');
     writePcmFrames = _lib.lookupFunction<MaBridgeWritePcmFramesNative,
         MaBridgeWritePcmFramesDart>('ma_bridge_write_pcm_frames');
+
+    // Resampler
+    initResampler = _lib.lookupFunction<MaBridgeInitResamplerNative,
+        MaBridgeInitResamplerDart>('ma_bridge_init_resampler');
+    setResamplingRatio = _lib.lookupFunction<MaBridgeSetResamplingRatioNative,
+        MaBridgeSetResamplingRatioDart>('ma_bridge_set_resampling_ratio');
 
     // Engine
     engineInit =
