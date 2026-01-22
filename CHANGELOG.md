@@ -1,3 +1,11 @@
+## 1.0.4
+* Implemented Sound Generation: Noise and Waveforms.
+* Implemented additional Effect Nodes: Delay, Low-Pass, High-Pass, and Band-Pass filters.
+* Added memory-based sound loading support.
+* Fixed C compilation errors for all platforms (macOS, iOS, Android, Linux, Windows).
+* Resolved library loading issues on Apple platforms by renaming bridge entries to `.m`.
+* Improved 3D audio API with Velocity, Direction, and Doppler Factor controls.
+
 ## 1.0.3
 * Fixed lint warnings (dangling library doc comments).
 * Corrected repository URL in pubspec.yaml.
