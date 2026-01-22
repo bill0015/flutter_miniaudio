@@ -42,7 +42,7 @@ enum MiniaudioDeviceType { playback, capture }
 
 class MiniaudioDeviceInfo {
   final String name;
-  final Pointer<Void> id; // Native ID handle
+  final Uint8List id; // Persistent ID data
   final int index;
 
   MiniaudioDeviceInfo(
@@ -77,14 +77,12 @@ class MiniaudioContext {
         final result = _bindings!.contextGetDeviceInfo(
             typeInt, i, nameBuffer, 256, idBuffer.cast(), idBufferSize);
         if (result == 0) {
-          final persistentId = calloc<Uint8>(idBufferSize);
-          for (int j = 0; j < idBufferSize; j++) {
-            persistentId[j] = idBuffer[j];
-          }
+          // Copy ID data to Dart-managed memory
+          final idData = Uint8List.fromList(idBuffer.asTypedList(idBufferSize));
 
           devices.add(MiniaudioDeviceInfo(
             name: nameBuffer.toDartString(),
-            id: persistentId.cast(),
+            id: idData,
             index: i,
           ));
         }
@@ -94,12 +92,6 @@ class MiniaudioContext {
       calloc.free(idBuffer);
     }
     return devices;
-  }
-
-  static void freeDevices(List<MiniaudioDeviceInfo> devices) {
-    for (var d in devices) {
-      calloc.free(d.id);
-    }
   }
 }
 
@@ -115,12 +107,13 @@ class MiniaudioPlayer {
   final int channels;
   final int bufferFrames;
   final int fifoCapacityFrames;
-  final Pointer<Void>? deviceId;
+  final Uint8List? deviceId;
 
   int get _fifoCapacitySamples => fifoCapacityFrames * channels;
 
   bool _initialized = false;
   bool _started = false;
+  bool _isDisposed = false;
 
   MiniaudioPlayer({
     required this.sampleRate,
@@ -130,8 +123,14 @@ class MiniaudioPlayer {
     this.deviceId, // Optional specific device
   }) {
     _ensureLibraryLoaded();
-    _allocateBuffers();
-    _initDevice();
+    try {
+      _allocateBuffers();
+      _initDevice();
+    } catch (e) {
+      // If initialization fails, ensure we clean up any allocated memory
+      dispose();
+      rethrow;
+    }
   }
 
   void _allocateBuffers() {
@@ -143,63 +142,116 @@ class MiniaudioPlayer {
   }
 
   void _initDevice() {
-    final result = _bindings!
-        .init(deviceId ?? nullptr, sampleRate, channels, bufferFrames);
-    if (result != 0) {
-      throw Exception('Failed to initialize miniaudio device');
+    Pointer<Void> deviceIdPtr = nullptr;
+
+    // Allocate native memory for the device ID if provided
+    if (deviceId != null) {
+      final ptr = calloc<Uint8>(deviceId!.length);
+      final list = ptr.asTypedList(deviceId!.length);
+      list.setAll(0, deviceId!);
+      deviceIdPtr = ptr.cast();
     }
-    _bindings!.setFifo(_fifoPtr, _fifoCapacitySamples, _readPos, _writePos);
-    _initialized = true;
+
+    try {
+      final result =
+          _bindings!.init(deviceIdPtr, sampleRate, channels, bufferFrames);
+      if (result != 0) {
+        throw Exception('Failed to initialize miniaudio device: $result');
+      }
+      print(
+          "[MiniaudioPlayer] Device Initialized. Rate: $sampleRate, Channels: $channels");
+      _bindings!.setFifo(_fifoPtr, _fifoCapacitySamples, _readPos, _writePos);
+      _initialized = true;
+    } finally {
+      if (deviceIdPtr != nullptr) {
+        calloc.free(deviceIdPtr);
+      }
+    }
   }
 
   void start() {
+    print("[MiniaudioPlayer] start() called");
     if (!_initialized) {
       throw StateError('MiniaudioPlayer not initialized');
     }
     if (_started) {
+      print("[MiniaudioPlayer] already started");
       return;
     }
     if (_bindings!.start() != 0) {
       throw Exception('Failed to start audio playback');
     }
     _started = true;
+    print("[MiniaudioPlayer] started successfully");
+  }
+
+  void setVolume(double volume) {
+    if (!_initialized) {
+      return;
+    }
+    _bindings!.setVolume(volume);
+  }
+
+  void setLogEnabled(bool enabled) {
+    if (!_initialized) {
+      return;
+    }
+    _bindings!.setLogEnabled(enabled ? 1 : 0);
   }
 
   void stop() {
+    print("[MiniaudioPlayer] stop() called");
     if (!_started) {
       return;
     }
     _bindings!.stop();
     _started = false;
+    print("[MiniaudioPlayer] stopped");
   }
 
   int write(Pointer<Int16> data, int frames) {
     if (!_initialized) {
       return 0;
     }
-    final samplesToWrite = frames * channels;
-    final writeVal = _writePos.value;
-    final readVal = _readPos.value;
 
-    int freeSpace;
-    if (writeVal >= readVal) {
-      freeSpace = _fifoCapacitySamples - (writeVal - readVal) - 1;
-    } else {
-      freeSpace = readVal - writeVal - 1;
-    }
-
-    final actualSamples =
-        samplesToWrite <= freeSpace ? samplesToWrite : freeSpace;
-    if (actualSamples == 0) {
-      return 0;
-    }
-
-    for (int i = 0; i < actualSamples; i++) {
-      _fifoPtr[(writeVal + i) % _fifoCapacitySamples] = data[i];
-    }
-    _writePos.value = (writeVal + actualSamples) % _fifoCapacitySamples;
-    return actualSamples ~/ channels;
+    // Use Native C bridge for safe, atomic write with barriers
+    return _bindings!.writePcmFrames(data, frames);
   }
+
+  // Deprecated: pure-Dart manual implementation
+  // int write(Pointer<Int16> data, int frames) {
+  //   if (!_initialized) {
+  //     return 0;
+  //   }
+  //   final samplesToWrite = frames * channels;
+  //   final writeVal = _writePos.value;
+  //   final readVal = _readPos.value;
+
+  //   int freeSpace;
+  //   if (writeVal >= readVal) {
+  //     freeSpace = _fifoCapacitySamples - (writeVal - readVal) - 1;
+  //   } else {
+  //     freeSpace = readVal - writeVal - 1;
+  //   }
+
+  //   final actualSamples =
+  //       samplesToWrite <= freeSpace ? samplesToWrite : freeSpace;
+  //   if (actualSamples == 0) {
+  //     return 0;
+  //   }
+
+  //   for (int i = 0; i < actualSamples; i++) {
+  //     _fifoPtr[(writeVal + i) % _fifoCapacitySamples] = data[i];
+  //   }
+  //   _writePos.value = (writeVal + actualSamples) % _fifoCapacitySamples;
+
+  //   // Debug Log (Throttled)
+  //   if ((_writePos.value % 1000) < 100) {
+  //     // print("[MiniaudioPlayer] Wrote $actualSamples samples. FIFO available: ${fifoAvailable}");
+  //   }
+
+  //   return actualSamples ~/ channels;
+  // }
 
   int writeList(List<int> samples) {
     if (!_initialized) {
@@ -235,14 +287,19 @@ class MiniaudioPlayer {
   int get deviceChannels => _bindings?.getDeviceChannels() ?? 0;
 
   void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
+
     stop();
     if (_initialized) {
       _bindings!.deinit();
       _initialized = false;
     }
-    calloc.free(_fifoPtr);
-    calloc.free(_readPos);
-    calloc.free(_writePos);
+    if (_fifoPtr != nullptr) {
+      calloc.free(_fifoPtr);
+    }
+    if (_readPos != nullptr) calloc.free(_readPos);
+    if (_writePos != nullptr) calloc.free(_writePos);
   }
 }
 
@@ -488,6 +545,7 @@ class MiniaudioSoundGroup extends GraphNode {
 
 class MiniaudioSound extends GraphNode {
   final Pointer<Void> _handle;
+  bool _isDisposed = false;
 
   MiniaudioSound._(this._handle);
 
@@ -510,6 +568,9 @@ class MiniaudioSound extends GraphNode {
   // --- Advanced Playback - Seek & Fade ---
 
   void seekToFrame(int frameIndex) {
+    if (frameIndex < 0)
+      throw ArgumentError.value(
+          frameIndex, 'frameIndex', 'Must be non-negative');
     _bindings!.soundSeekToPcmFrame(_handle, frameIndex);
   }
 
@@ -517,6 +578,8 @@ class MiniaudioSound extends GraphNode {
   int get cursorFrames => _bindings!.soundGetCursorInPcmFrames(_handle);
 
   void setFadeIn(double volBeg, double volEnd, int lenFrames) {
+    if (lenFrames < 0)
+      throw ArgumentError.value(lenFrames, 'lenFrames', 'Must be non-negative');
     _bindings!.soundSetFadeInPcmFrames(_handle, volBeg, volEnd, lenFrames);
   }
 
@@ -553,6 +616,8 @@ class MiniaudioSound extends GraphNode {
   }
 
   void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
     _bindings!.soundUninit(_handle);
   }
 }
@@ -561,12 +626,15 @@ class MiniaudioSound extends GraphNode {
 
 abstract class AudioNode extends GraphNode {
   final Pointer<Void> _handle;
+  bool _isDisposed = false;
   AudioNode._(this._handle);
 
   @override
   Pointer<Void> get handle => _handle;
 
   void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
     _bindings!.nodeUninit(_handle);
   }
 }

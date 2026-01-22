@@ -16,6 +16,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+  #define MA_BRIDGE_EXPORT __declspec(dllexport)
+#else
+  #define MA_BRIDGE_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+#endif
+
 /* --- Globals --- */
 
 /* Context (Device Enumeration & Management) */
@@ -31,6 +37,9 @@ static int g_device_started = 0;
 static ma_engine g_engine;
 static int g_engine_initialized = 0;
 
+/* Logging Control */
+static int g_log_enabled = 0; // Default to false (Silent)
+
 /* Device FIFO state (legacy/stream mode) */
 static int16_t* g_fifo = NULL;
 static int g_fifo_capacity = 0;
@@ -41,6 +50,9 @@ static uint64_t g_frames_consumed = 0;
 
 
 /* --- Internal Helpers --- */
+
+// Wrapper for printf to handle switch safely
+#define MA_LOG(...) if (g_log_enabled) { printf(__VA_ARGS__); }
 
 static ma_result EnsureContextInit(void) {
     if (g_context_initialized) return MA_SUCCESS;
@@ -146,6 +158,15 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
     
     *g_read_pos = (read + samples_to_read) % g_fifo_capacity;
     g_frames_consumed += frames_to_read;
+    
+    // Debug Log (Throttled)
+    /*
+    static int cb_count = 0;
+    cb_count++;
+    if (cb_count % 100 == 0) {
+        // printf("[miniaudio_bridge] Callback fired. Req: %d, Read: %d frames. Total Consumed: %llu\n", frameCount, frames_to_read, g_frames_consumed);
+    }
+    */
 }
 
 MA_BRIDGE_EXPORT int ma_bridge_init_with_device_id(void* device_id, int sample_rate, int channels, int buffer_frames) {
@@ -170,6 +191,7 @@ MA_BRIDGE_EXPORT int ma_bridge_init_with_device_id(void* device_id, int sample_r
         return -1;
     }
     
+    printf("[miniaudio_bridge] Device Initialized. Rate: %d, Channels: %d, BufferFrames: %d\n", sample_rate, channels, buffer_frames);
     g_device_initialized = 1;
     return 0;
 }
@@ -185,13 +207,19 @@ MA_BRIDGE_EXPORT void ma_bridge_set_fifo(int16_t* fifo_ptr, int capacity_samples
     g_write_pos = write_pos;
     if (read_pos) *read_pos = 0;
     if (write_pos) *write_pos = 0;
+    printf("[miniaudio_bridge] FIFO configured. Capacity: %d samples\n", capacity_samples);
 }
 
 MA_BRIDGE_EXPORT int ma_bridge_start(void) {
     if (!g_device_initialized) return -1;
     if (g_device_started) return 0;
     
-    if (ma_device_start(&g_device) != MA_SUCCESS) return -1;
+    printf("[miniaudio_bridge] Starting device...\n");
+    if (ma_device_start(&g_device) != MA_SUCCESS) {
+        printf("[miniaudio_bridge] Failed to start device!\n");
+        return -1;
+    }
+    printf("[miniaudio_bridge] Device started successfully\n");
     g_device_started = 1;
     return 0;
 }
@@ -224,6 +252,65 @@ MA_BRIDGE_EXPORT int32_t ma_bridge_get_device_sample_rate(void) {
 
 MA_BRIDGE_EXPORT int32_t ma_bridge_get_device_channels(void) {
     return g_device_initialized ? g_device.playback.channels : 0;
+}
+
+MA_BRIDGE_EXPORT int32_t ma_bridge_write_pcm_frames(int16_t* data, int32_t frameCount) {
+    if (!g_fifo || !g_write_pos || !g_read_pos) return 0;
+
+    int read = *g_read_pos;
+    int write = *g_write_pos;
+    int capacity = g_fifo_capacity;
+
+    int available;
+    if (write >= read) {
+        available = capacity - (write - read) - 1;
+    } else {
+        available = read - write - 1;
+    }
+
+    // Logic for "Space Available to Write":
+    int freeSamples;
+    if (write >= read) {
+        freeSamples = capacity - (write - read) - 1; /* Keep 1 sample gap */
+    } else {
+        freeSamples = read - write - 1;
+    }
+    
+    int framesToWrite = frameCount;
+    int samplesToWrite = framesToWrite * g_channels;
+
+    if (samplesToWrite > freeSamples) {
+        // Log when we clip (buffer full)
+        MA_LOG("[miniaudio_bridge] Buffer FULL. Write: %d, Read: %d, Free: %d, Req: %d\n", write, read, freeSamples, samplesToWrite);
+        samplesToWrite = freeSamples;
+        framesToWrite = samplesToWrite / g_channels;
+    }
+
+    if (samplesToWrite <= 0) {
+        MA_LOG("[miniaudio_bridge] Buffer FULL (0 space). Write: %d, Read: %d\n", write, read);
+        return 0;
+    }
+
+    int samplesFirstChunk = capacity - write;
+    if (samplesToWrite < samplesFirstChunk) {
+        samplesFirstChunk = samplesToWrite;
+    }
+    
+    // Copy part 1
+    memcpy(g_fifo + write, data, samplesFirstChunk * sizeof(int16_t));
+    
+    // Copy part 2 (Wrap)
+    if (samplesToWrite > samplesFirstChunk) {
+        memcpy(g_fifo, data + samplesFirstChunk, (samplesToWrite - samplesFirstChunk) * sizeof(int16_t));
+    }
+
+    // MEMORY BARRIER: Ensure data is committed before updating write_pos
+    __sync_synchronize(); 
+
+    // Update write position
+    *g_write_pos = (write + samplesToWrite) % capacity;
+    
+    return framesToWrite;
 }
 
 /* --- Engine API (High Level) --- */
@@ -795,6 +882,12 @@ MA_BRIDGE_EXPORT void ma_bridge_sound_route_to_node(void* sound_handle, void* no
 
 MA_BRIDGE_EXPORT void ma_bridge_deinit(void) {
     ma_bridge_stop();
+
+    // Safety: Clear pointers to Dart memory BEFORE uninit.
+    g_fifo = NULL;
+    g_read_pos = NULL;
+    g_write_pos = NULL;
+
     if (g_device_initialized) {
         ma_device_uninit(&g_device);
         g_device_initialized = 0;

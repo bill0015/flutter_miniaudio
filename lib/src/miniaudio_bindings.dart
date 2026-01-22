@@ -37,6 +37,11 @@ typedef MaBridgeSetFifoDart = void Function(
   Pointer<Int32> writePos,
 );
 
+typedef MaBridgeWritePcmFramesNative = Int32 Function(
+    Pointer<Int16> data, Int32 frameCount);
+typedef MaBridgeWritePcmFramesDart = int Function(
+    Pointer<Int16> data, int frameCount);
+
 typedef MaBridgeStartNative = Int32 Function();
 typedef MaBridgeStartDart = int Function();
 
@@ -48,6 +53,9 @@ typedef MaBridgeGetFramesConsumedDart = int Function();
 
 typedef MaBridgeGetFifoAvailableNative = Int32 Function();
 typedef MaBridgeGetFifoAvailableDart = int Function();
+
+typedef MaBridgeSetLogEnabledNative = Void Function(Int32 enabled);
+typedef MaBridgeSetLogEnabledDart = void Function(int enabled);
 
 typedef MaBridgeSetVolumeNative = Void Function(Float volume);
 typedef MaBridgeSetVolumeDart = void Function(double volume);
@@ -401,10 +409,12 @@ class MiniaudioBindings {
   late final MaBridgeStopDart stop;
   late final MaBridgeGetFramesConsumedDart getFramesConsumed;
   late final MaBridgeGetFifoAvailableDart getFifoAvailable;
+  late final MaBridgeSetLogEnabledDart setLogEnabled;
   late final MaBridgeSetVolumeDart setVolume;
   late final MaBridgeGetDeviceSampleRateDart getDeviceSampleRate;
   late final MaBridgeGetDeviceChannelsDart getDeviceChannels;
   late final MaBridgeDeinitDart deinit;
+  late final MaBridgeWritePcmFramesDart writePcmFrames;
 
   // Engine
   late final MaBridgeEngineInitDart engineInit;
@@ -519,6 +529,8 @@ class MiniaudioBindings {
         MaBridgeGetFramesConsumedDart>('ma_bridge_get_frames_consumed');
     getFifoAvailable = _lib.lookupFunction<MaBridgeGetFifoAvailableNative,
         MaBridgeGetFifoAvailableDart>('ma_bridge_get_fifo_available');
+    setLogEnabled = _lib.lookupFunction<MaBridgeSetLogEnabledNative,
+        MaBridgeSetLogEnabledDart>('ma_bridge_set_log_enabled');
     setVolume =
         _lib.lookupFunction<MaBridgeSetVolumeNative, MaBridgeSetVolumeDart>(
             'ma_bridge_set_volume');
@@ -528,6 +540,8 @@ class MiniaudioBindings {
         MaBridgeGetDeviceChannelsDart>('ma_bridge_get_device_channels');
     deinit = _lib.lookupFunction<MaBridgeDeinitNative, MaBridgeDeinitDart>(
         'ma_bridge_deinit');
+    writePcmFrames = _lib.lookupFunction<MaBridgeWritePcmFramesNative,
+        MaBridgeWritePcmFramesDart>('ma_bridge_write_pcm_frames');
 
     // Engine
     engineInit =

@@ -1,3 +1,7 @@
+## 1.0.6
+* Fix: Removed `printf` debugging from real-time audio callback to prevent deadlocks.
+* Fix: Implemented atomic ring buffer with memory barriers in C to prevent race conditions ("da da da" artifacts).
+* Feat: Added `setLogEnabled(bool)` API to enable/disable native logging at runtime (default disabled).
 ## 1.0.5
 * Fixed static analysis issues (curly braces in flow control structures).
 * Removed unused prints and imports in example files.
