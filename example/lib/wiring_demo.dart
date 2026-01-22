@@ -1,4 +1,3 @@
-import 'dart:ffi';
 import 'package:flutter/material.dart';
 import 'package:flutter_miniaudio/flutter_miniaudio.dart';
 
@@ -60,7 +59,7 @@ class _WiringDemoAppState extends State<WiringDemoApp> {
 
       setState(() {});
     } catch (e) {
-      print("Error loading sound: $e");
+      debugPrint("Error loading sound: $e");
     }
   }
 

@@ -40,9 +40,9 @@ class _MyAppState extends State<MyApp> {
         channels: 2,
         bufferFrames: 1024,
       );
-      print('Miniaudio initialized');
+      debugPrint('Miniaudio initialized');
     } catch (e) {
-      print('Failed to init player: $e');
+      debugPrint('Failed to init player: $e');
     }
   }
 

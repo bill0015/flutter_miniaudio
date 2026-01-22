@@ -19,7 +19,9 @@ import 'miniaudio_bindings.dart';
 MiniaudioBindings? _bindings;
 
 void _ensureLibraryLoaded() {
-  if (_bindings != null) return;
+  if (_bindings != null) {
+    return;
+  }
 
   final DynamicLibrary lib;
   if (Platform.isAndroid || Platform.isLinux) {
@@ -151,21 +153,30 @@ class MiniaudioPlayer {
   }
 
   void start() {
-    if (!_initialized) throw StateError('MiniaudioPlayer not initialized');
-    if (_started) return;
-    if (_bindings!.start() != 0)
+    if (!_initialized) {
+      throw StateError('MiniaudioPlayer not initialized');
+    }
+    if (_started) {
+      return;
+    }
+    if (_bindings!.start() != 0) {
       throw Exception('Failed to start audio playback');
+    }
     _started = true;
   }
 
   void stop() {
-    if (!_started) return;
+    if (!_started) {
+      return;
+    }
     _bindings!.stop();
     _started = false;
   }
 
   int write(Pointer<Int16> data, int frames) {
-    if (!_initialized) return 0;
+    if (!_initialized) {
+      return 0;
+    }
     final samplesToWrite = frames * channels;
     final writeVal = _writePos.value;
     final readVal = _readPos.value;
@@ -179,7 +190,9 @@ class MiniaudioPlayer {
 
     final actualSamples =
         samplesToWrite <= freeSpace ? samplesToWrite : freeSpace;
-    if (actualSamples == 0) return 0;
+    if (actualSamples == 0) {
+      return 0;
+    }
 
     for (int i = 0; i < actualSamples; i++) {
       _fifoPtr[(writeVal + i) % _fifoCapacitySamples] = data[i];
@@ -189,7 +202,9 @@ class MiniaudioPlayer {
   }
 
   int writeList(List<int> samples) {
-    if (!_initialized) return 0;
+    if (!_initialized) {
+      return 0;
+    }
 
     final writeVal = _writePos.value;
     final readVal = _readPos.value;
@@ -199,7 +214,9 @@ class MiniaudioPlayer {
 
     final actualSamples =
         samples.length <= freeSpace ? samples.length : freeSpace;
-    if (actualSamples == 0) return 0;
+    if (actualSamples == 0) {
+      return 0;
+    }
 
     for (int i = 0; i < actualSamples; i++) {
       _fifoPtr[(writeVal + i) % _fifoCapacitySamples] = samples[i];
@@ -290,62 +307,82 @@ class MiniaudioEngine {
   /// Create a new Sound Group.
   MiniaudioSoundGroup createGroup([MiniaudioSoundGroup? parent]) {
     final handle = _bindings!.soundGroupInit(parent?._handle ?? nullptr);
-    if (handle == nullptr) throw Exception("Failed to create sound group");
+    if (handle == nullptr) {
+      throw Exception("Failed to create sound group");
+    }
     return MiniaudioSoundGroup._(handle);
   }
 
   // --- Node Creation ---
   PeakingEqNode createPeakingEq() {
     final handle = _bindings!.nodePeakingEqInit();
-    if (handle == nullptr) throw Exception("Failed to create Peaking EQ");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Peaking EQ");
+    }
     return PeakingEqNode._(handle);
   }
 
   LowShelfNode createLowShelf() {
     final handle = _bindings!.nodeLowShelfInit();
-    if (handle == nullptr) throw Exception("Failed to create Low Shelf");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Low Shelf");
+    }
     return LowShelfNode._(handle);
   }
 
   HighShelfNode createHighShelf() {
     final handle = _bindings!.nodeHighShelfInit();
-    if (handle == nullptr) throw Exception("Failed to create High Shelf");
+    if (handle == nullptr) {
+      throw Exception("Failed to create High Shelf");
+    }
     return HighShelfNode._(handle);
   }
 
   SplitterNode createSplitter() {
     final handle = _bindings!.nodeSplitterInit();
-    if (handle == nullptr) throw Exception("Failed to create Splitter");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Splitter");
+    }
     return SplitterNode._(handle);
   }
 
   DelayNode createDelay() {
     final handle = _bindings!.nodeDelayInit();
-    if (handle == nullptr) throw Exception("Failed to create Delay");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Delay");
+    }
     return DelayNode._(handle);
   }
 
   ReverbNode createReverb() {
     final handle = _bindings!.nodeReverbInit();
-    if (handle == nullptr) throw Exception("Failed to create Reverb");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Reverb");
+    }
     return ReverbNode._(handle);
   }
 
   LowPassFilterNode createLowPass() {
     final handle = _bindings!.nodeLpfInit();
-    if (handle == nullptr) throw Exception("Failed to create Low Pass Filter");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Low Pass Filter");
+    }
     return LowPassFilterNode._(handle);
   }
 
   HighPassFilterNode createHighPass() {
     final handle = _bindings!.nodeHpfInit();
-    if (handle == nullptr) throw Exception("Failed to create High Pass Filter");
+    if (handle == nullptr) {
+      throw Exception("Failed to create High Pass Filter");
+    }
     return HighPassFilterNode._(handle);
   }
 
   BandPassFilterNode createBandPass() {
     final handle = _bindings!.nodeBpfInit();
-    if (handle == nullptr) throw Exception("Failed to create Band Pass Filter");
+    if (handle == nullptr) {
+      throw Exception("Failed to create Band Pass Filter");
+    }
     return BandPassFilterNode._(handle);
   }
 
@@ -386,14 +423,18 @@ class MiniaudioEngine {
 
   MiniaudioSound loadNoise(int type, {double amplitude = 0.5, int seed = 0}) {
     final handle = _bindings!.soundInitNoise(type, amplitude, seed);
-    if (handle == nullptr) throw Exception("Failed to load noise");
+    if (handle == nullptr) {
+      throw Exception("Failed to load noise");
+    }
     return MiniaudioSound._(handle);
   }
 
   MiniaudioSound loadWaveform(int type,
       {double amplitude = 0.5, double frequency = 440.0}) {
     final handle = _bindings!.soundInitWaveform(type, amplitude, frequency);
-    if (handle == nullptr) throw Exception("Failed to load waveform");
+    if (handle == nullptr) {
+      throw Exception("Failed to load waveform");
+    }
     return MiniaudioSound._(handle);
   }
 
@@ -515,8 +556,6 @@ class MiniaudioSound extends GraphNode {
     _bindings!.soundUninit(_handle);
   }
 }
-
-// --- Node Classes ---
 
 // --- Node Classes ---
 
