@@ -23,11 +23,16 @@ void _ensureLibraryLoaded() {
     return;
   }
 
-  final DynamicLibrary lib;
+  late DynamicLibrary lib;
   if (Platform.isAndroid || Platform.isLinux) {
     lib = DynamicLibrary.open('libminiaudio_ffi.so');
   } else if (Platform.isIOS || Platform.isMacOS) {
-    lib = DynamicLibrary.open('flutter_miniaudio.framework/flutter_miniaudio');
+    try {
+      lib = DynamicLibrary.open('flutter-miniaudio.framework/flutter-miniaudio');
+    } catch (_) {
+      // CocoaPods names the bundle differently from Swift Package Manager
+      lib = DynamicLibrary.open('flutter_miniaudio.framework/flutter_miniaudio');
+    }
   } else if (Platform.isWindows) {
     lib = DynamicLibrary.open('miniaudio_ffi.dll');
   } else {
